@@ -1,0 +1,1902 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lava Game</title>
+<meta name="description" content="A small lava-dodging platform puzzle game with optional online multiplayer.">
+
+<!--
+  Lava Game — HTML/CSS/JavaScript port of a Scratch project.
+  Created by Stormwindsky.
+  Source code: MIT-0 and 0BSD.  Assets: CC0 1.0 Universal.
+  Everything (markup, styles, script) lives in this single file; the media files
+  are loaded from the "assets/" folder next to it.
+-->
+
+<style>
+/* ==========================================================================
+   Fonts
+   "Crayon Libre" — CC0 1.0, by ggbot (https://ggbot.itch.io/).
+   ========================================================================== */
+@font-face {
+  font-family: "Crayon Libre";
+  src: url("assets/20e26437c7dcdc021dffcf5b76083673.woff") format("woff");
+  font-display: swap;
+}
+
+/* ==========================================================================
+   Design tokens
+   ========================================================================== */
+:root {
+  --bg:        #17110f;   /* scorched basalt */
+  --surface:   #231a16;   /* panels */
+  --surface-2: #2d221c;   /* raised elements */
+  --line:      #4a382d;   /* borders */
+  --text:      #f3e9e1;
+  --muted:     #b4a094;
+  --ember:     #ff7b2e;   /* the one accent colour */
+  --ember-ink: #1b0e05;   /* text on ember */
+  --danger:    #ff5d5d;
+  --radius:    10px;
+
+  --font-display: "Crayon Libre", "Trebuchet MS", system-ui, sans-serif;
+  --font-body:    system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body { margin: 0; }
+body {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.5 var(--font-body);
+  display: flex;
+  flex-direction: column;
+}
+
+/* ==========================================================================
+   Page layout
+   ========================================================================== */
+.site-header {
+  padding: 20px clamp(16px, 4vw, 40px) 8px;
+}
+.site-header h1 {
+  margin: 0;
+  font: 400 clamp(28px, 4vw, 40px)/1.1 var(--font-display);
+  letter-spacing: .02em;
+}
+.site-header p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.layout {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 20px;
+  align-items: start;
+  padding: 12px clamp(16px, 4vw, 40px) 32px;
+  max-width: 1400px;
+  width: 100%;
+  margin: 0 auto;
+}
+@media (max-width: 900px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ==========================================================================
+   Game window
+   ========================================================================== */
+.stage {
+  position: relative;
+  container-type: inline-size;           /* lets children size themselves in "stage pixels" */
+  aspect-ratio: 4 / 3;                   /* the Scratch stage is 480 x 360 */
+  width: min(100%, 960px, calc((100vh - 170px) * 4 / 3));
+  min-width: 280px;
+  background: #000;
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: 0 0 0 1px #000, 0 14px 40px rgba(255, 90, 20, .08);
+}
+.stage canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* The "Color" slider that Scratch showed as a stage monitor (x: 0, y: 315). */
+.color-monitor {
+  --px: calc(100cqw / 480);              /* one Scratch stage pixel */
+  position: absolute;
+  left: 0;
+  top: calc(100% * 315 / 360);
+  display: flex;
+  align-items: center;
+  gap: calc(8 * var(--px));
+  padding: calc(5 * var(--px)) calc(10 * var(--px));
+  font: 400 calc(14 * var(--px))/1 var(--font-display);
+  color: var(--text);
+  background: rgba(23, 17, 15, .88);
+  border: calc(1.5 * var(--px)) solid var(--line);
+  border-left: 0;
+  border-radius: 0 calc(8 * var(--px)) calc(8 * var(--px)) 0;
+}
+.color-monitor input[type="range"] {
+  width: calc(150 * var(--px));
+  accent-color: var(--ember);
+  cursor: pointer;
+}
+.color-monitor output {
+  min-width: 3ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.stage-message {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+  background: #0b0705;
+  color: var(--muted);
+}
+.stage-message.error { color: var(--danger); }
+
+.game-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 14px;
+}
+kbd {
+  font: 12px var(--font-body);
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* ==========================================================================
+   Buttons
+   ========================================================================== */
+button {
+  font: inherit;
+  color: inherit;
+}
+.btn {
+  font: 400 16px/1 var(--font-display);
+  letter-spacing: .03em;
+  padding: 10px 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.btn:hover { border-color: var(--ember); }
+.btn.primary { background: var(--ember); color: var(--ember-ink); border-color: var(--ember); }
+:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
+
+/* ==========================================================================
+   Online side panel
+   ========================================================================== */
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+.panel h2 {
+  margin: 0 0 10px;
+  font: 400 22px/1.2 var(--font-display);
+}
+.panel h3 {
+  margin: 18px 0 8px;
+  font: 600 14px/1.2 var(--font-body);
+  color: var(--muted);
+}
+
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.switch input { width: 18px; height: 18px; accent-color: var(--ember); }
+
+.status {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+.status::before {
+  content: "";
+  display: inline-block;
+  width: 9px; height: 9px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.status[data-state="online"]::before  { background: #5fd38d; }
+.status[data-state="busy"]::before    { background: var(--ember); }
+.status[data-state="error"]::before   { background: var(--danger); }
+
+.player-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+}
+.player-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--surface-2);
+  border-radius: 6px;
+}
+.player-list .detail { color: var(--muted); }
+
+.emoji-bar {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+.emoji-bar button {
+  font-size: 22px;
+  line-height: 1;
+  padding: 8px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  cursor: pointer;
+}
+.emoji-bar button:hover:not(:disabled) { border-color: var(--ember); }
+.emoji-bar button:disabled { opacity: .4; cursor: not-allowed; }
+
+.chat-log {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  min-height: 3.2em;
+  font-size: 14px;
+  color: var(--muted);
+}
+.chat-log li { display: flex; gap: 8px; }
+.chat-log .emoji { font-size: 16px; }
+
+.note {
+  margin: 16px 0 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+/* ==========================================================================
+   Credits dialog
+   ========================================================================== */
+dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  padding: 0;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+dialog::backdrop { background: rgba(5, 2, 1, .72); }
+.dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--line);
+}
+.dialog-head h2 { margin: 0; font: 400 26px/1 var(--font-display); }
+.dialog-body { padding: 8px 22px 22px; overflow-y: auto; max-height: calc(100vh - 150px); }
+.dialog-body h3 { margin: 20px 0 6px; font: 400 18px/1.2 var(--font-display); color: var(--ember); }
+.dialog-body p, .dialog-body li { margin: 4px 0; }
+.dialog-body ul { padding-left: 20px; }
+.dialog-body a { color: var(--ember); overflow-wrap: anywhere; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
+</style>
+</head>
+
+<body>
+
+<header class="site-header">
+  <h1>Lava Game</h1>
+  <p>Reach the exit of each level and stay out of the lava.</p>
+</header>
+
+<main class="layout">
+
+  <!-- ===================== Game window ===================== -->
+  <section aria-label="Game">
+    <div class="stage" id="stage">
+      <canvas id="screen" width="960" height="720" aria-label="Game screen"></canvas>
+
+      <!-- Scratch "Color" slider monitor, shown on the main menu only. -->
+      <label class="color-monitor" id="colorMonitor" hidden>
+        <span>Color</span>
+        <input type="range" id="colorSlider" min="0" max="199" step="1" value="0">
+        <output id="colorValue" for="colorSlider">0</output>
+      </label>
+
+      <div class="stage-message" id="stageMessage">Loading…</div>
+    </div>
+
+    <!-- Deliberately outside the game window. -->
+    <div class="game-toolbar">
+      <button class="btn" id="creditsButton" type="button">Credits</button>
+      <span>Move with <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd>. A keyboard is required.</span>
+    </div>
+  </section>
+
+  <!-- ===================== Online panel ===================== -->
+  <aside class="panel" aria-label="Online play">
+    <h2>Online</h2>
+
+    <label class="switch">
+      <input type="checkbox" id="onlineToggle" checked>
+      <span>Online mode</span>
+    </label>
+    <p class="status" id="onlineStatus" role="status" data-state="busy">Connecting…</p>
+
+    <h3>Players</h3>
+    <ul class="player-list" id="playerList"></ul>
+
+    <h3>Quick chat</h3>
+    <div class="emoji-bar" id="emojiBar" role="group" aria-label="Quick chat emoji"></div>
+    <ol class="chat-log" id="chatLog" aria-live="polite"></ol>
+
+    <p class="note">
+      Online mode connects you directly to other players with WebRTC through the public PeerJS
+      server. Other players can technically see your IP address. Turn the switch off at any
+      time to play alone.
+    </p>
+  </aside>
+
+</main>
+
+<!-- ===================== Credits ===================== -->
+<dialog id="creditsDialog" aria-labelledby="creditsTitle">
+  <div class="dialog-head">
+    <h2 id="creditsTitle">Credits</h2>
+    <button class="btn" id="creditsClose" type="button">Close</button>
+  </div>
+  <div class="dialog-body">
+
+    <h3>Game</h3>
+    <p>Created by Stormwindsky: game design, programming, artwork and level design.</p>
+
+    <h3>Music and sound effects</h3>
+    <ul>
+      <li>Main menu music by klavo1985 —
+        <a href="https://freesound.org/people/klavo1985/sounds/349226/" target="_blank" rel="noopener">freesound.org/people/klavo1985/sounds/349226</a></li>
+      <li>Level theme by 1volcano —
+        <a href="https://freesound.org/people/1volcano/sounds/768687/" target="_blank" rel="noopener">freesound.org/people/1volcano/sounds/768687</a></li>
+      <li>“oof” (death sound effect) by goofygamer12 —
+        <a href="https://freesound.org/people/goofygamer12/sounds/725410/" target="_blank" rel="noopener">freesound.org/people/goofygamer12/sounds/725410</a></li>
+    </ul>
+
+    <h3>Graphics</h3>
+    <ul>
+      <li>Lava animation by Zabin, in collaboration with
+        <a href="https://opengameart.org/users/zookeeper" target="_blank" rel="noopener">zookeeper</a>, from
+        <a href="https://opengameart.org/content/the-battle-for-wesnoth-lava-animation-remixed" target="_blank" rel="noopener">“The Battle for Wesnoth: Lava Animation (Remixed)”</a>
+        on OpenGameArt.</li>
+    </ul>
+
+    <h3>Typography</h3>
+    <ul>
+      <li>Crayon Libre typeface by <a href="https://ggbot.itch.io/" target="_blank" rel="noopener">ggbot</a> on itch.io.</li>
+    </ul>
+
+    <h3>Software</h3>
+    <ul>
+      <li>Online play is powered by <a href="https://peerjs.com/" target="_blank" rel="noopener">PeerJS</a>.</li>
+    </ul>
+
+    <h3>Licensing</h3>
+    <p>
+      Some of the third-party works above were edited for use in this game.
+      All assets in this game, including the ones created by Stormwindsky, are released under the
+      <a href="https://creativecommons.org/publicdomain/zero/1.0/" target="_blank" rel="noopener">CC0 1.0 Universal</a> public domain dedication.
+    </p>
+    <p>
+      All source code of this game and of this website is released under the
+      <a href="https://opensource.org/license/mit-0" target="_blank" rel="noopener">MIT-0</a> and
+      <a href="https://opensource.org/license/0bsd" target="_blank" rel="noopener">0BSD</a> licenses.
+    </p>
+  </div>
+</dialog>
+
+<!-- PeerJS (MIT) — used only for online mode. The game still runs if it fails to load. -->
+<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js" crossorigin="anonymous"></script>
+
+<script>
+'use strict';
+
+/* ==========================================================================
+   LAVA GAME — port of a Scratch 3 project to plain JavaScript.
+
+   How this file is organised
+     1. Settings
+     2. Asset manifest        (costumes and sounds, copied from the Scratch project)
+     3. Mini "Scratch" runtime (sprites, variables, scripts as generators, broadcasts)
+     4. Input
+     5. Pixel collision        (Scratch's "touching" block)
+     6. Rendering
+     7. Audio
+     8. The game's scripts     (one section per Scratch sprite, same logic as the blocks)
+     9. Online mode            (PeerJS: positions, colours and emoji chat)
+    10. Page interface
+    11. Start-up and main loop
+
+   Each Scratch script is written as a generator function:
+     - `yield`           ends the current frame (what a Scratch loop does every iteration)
+     - `yield* wait(s)`  is the "wait s seconds" block
+   ========================================================================== */
+
+
+/* ==========================================================================
+   1. SETTINGS
+   ========================================================================== */
+
+const STAGE_WIDTH  = 480;       // Scratch stage size, in stage pixels
+const STAGE_HEIGHT = 360;
+const TICKS_PER_SECOND = 30;    // Scratch runs scripts at 30 frames per second
+const TICK = 1 / TICKS_PER_SECOND;
+const RENDER_SCALE = 2;         // canvas backing store is 2x for sharper graphics
+const ASSET_DIR = 'assets/';
+
+// Where the player respawns after dying or finishing a level.
+const START = { x: -221, y: 123 };
+
+// Online mode.
+const ONLINE = {
+  // Fixed PeerJS id used as a "meeting point" so players find each other without any code.
+  lobbyId: 'sw-lavagame-lobby-7f3a91',
+  maxPlayers: 12,
+  stateEveryTicks: 2,        // how often we send our position (15 times per second)
+  heartbeatTicks: 15,        // resend our state at least this often, even when idle
+  emojiCooldownMs: 1200,
+  bubbleMs: 3000,
+};
+
+// Quick-chat emoji (the only thing players can send).
+const EMOJIS = [
+  { char: '😀', label: 'Happy' },
+  { char: '😂', label: 'Laughing' },
+  { char: '😠', label: 'Angry' },
+  { char: '😢', label: 'Crying' },
+  { char: '😮', label: 'Surprised' },
+  { char: '👍', label: 'Thumbs up' },
+  { char: '👋', label: 'Wave' },
+  { char: '❤️', label: 'Heart' },
+  { char: '🔥', label: 'Fire' },
+  { char: '💀', label: 'Skull' },
+];
+
+
+/* ==========================================================================
+   2. ASSET MANIFEST
+   File names are the ones used inside the .sb3 archive (an .sb3 is a zip file).
+   `cx`/`cy` is the costume's rotation centre and `res` its bitmap resolution,
+   exactly as stored in the Scratch project.
+   ========================================================================== */
+
+const SPRITE_DEFS = {
+  // Stage
+  stage: {
+    costumes: [
+      { name: "Rock", file: 'af808d6703d97bbd9609df0580f50648.png', cx: 480, cy: 360, res: 2 },
+    ],
+  },
+  // Player
+  player: {
+    x: -221, y: 123, size: 130, direction: 90, visible: false, costume: 1,
+    costumes: [
+      { name: "idle - 1", file: 'f0d031c5839badabfef0eac87df107d6.png', cx: 18, cy: 50, res: 2 },
+      { name: "idle - 2", file: '3986a0fd616becef8509fe1ee6981abb.png', cx: 18, cy: 48, res: 2 },
+      { name: "walk - 1", file: '4af811f9e87d6230ae8a4cc0463c00a5.png', cx: 18, cy: 50, res: 2 },
+      { name: "walk - 2", file: '4180b9930497d9a12a79689bad15f931.png', cx: 18, cy: 50, res: 2 },
+      { name: "jump or ded", file: 'a6af22a78af947d0a16ec86460431b2a.png', cx: 17, cy: 50, res: 2 },
+    ],
+  },
+  // Main - Menu
+  mainMenu: {
+    x: 0, y: 0, size: 100, direction: 90, visible: true, costume: 0,
+    costumes: [
+      { name: "costume3", file: '842065824f8382377e0e74f29440d826.png', cx: 480, cy: 360, res: 2 },
+    ],
+  },
+  // Play
+  playButton: {
+    x: 0, y: -21, size: 70, direction: 90, visible: true, costume: 0,
+    costumes: [
+      { name: "costume1", file: '47d5c013ed7d0d49ec77eb3ea4034f5f.png', cx: 157, cy: 72, res: 2 },
+    ],
+  },
+  // Music
+  music: {
+    x: 36, y: 28, size: 100, direction: 90, visible: false, costume: 0,
+    costumes: [
+      { name: "costume1", file: '1e396004d3c562aa8388756522c5e063.png', cx: 0, cy: 0, res: 2 },
+    ],
+  },
+  // You
+  youLabel: {
+    x: -167, y: -41, size: 90, direction: 90, visible: true, costume: 0,
+    costumes: [
+      { name: "You", file: '2db4902f9753bd3711d3109be633ca3d.svg', cx: 77.3804, cy: 92.7097, res: 1 },
+    ],
+  },
+  // yu
+  colorMarker: {
+    x: -125, y: -76, size: 100, direction: 90, visible: true, costume: 0,
+    costumes: [
+      { name: "costume1", file: '42501ab9a1604a9c4a49daef3e354ea2.svg', cx: 4.6603, cy: 14, res: 1 },
+    ],
+  },
+  // Levels
+  levels: {
+    x: 0, y: 0, size: 100, direction: 90, visible: false, costume: 0,
+    costumes: [
+      { name: "Level - 1", file: '179f17bf0a26725b7c8cb1ec70575aed.png', cx: 480, cy: 360, res: 2 },
+      { name: "Level - 2", file: 'a68057e9b83c360bdd8fd9bac386a0e1.png', cx: 480, cy: 360, res: 2 },
+      { name: "Level - 3", file: '0678d55475cc98413da2202b72e6a4c3.png', cx: 480, cy: 360, res: 2 },
+      { name: "Level - 4", file: 'fa69d8df636cd57c01c280c128d58047.png', cx: 480, cy: 360, res: 2 },
+      { name: "Level - Ending", file: 'f4cc83cbb9b469c682574bb1c6decdce.png', cx: 480, cy: 360, res: 2 },
+    ],
+  },
+  // lava
+  lava: {
+    x: -25, y: -5, size: 210.9375, direction: 90, visible: false, costume: 2,
+    costumes: [
+      { name: "lava - 1", file: 'c2e0428bcfeac0fb52047fcd118dee00.png', cx: 258, cy: 360, res: 2 },
+      { name: "lava - 2", file: '4be5eca88cdfe991743014bca5608803.png', cx: 258, cy: 360, res: 2 },
+      { name: "lava - 3", file: '6240bec52c3214ae0217e3dbe61bd602.png', cx: 258, cy: 360, res: 2 },
+      { name: "lava - 4", file: '253a3ad2f8ca5d0d102291f20619b83a.png', cx: 258, cy: 360, res: 2 },
+    ],
+  },
+  // lava hitbox
+  lavaHitbox: {
+    x: 0, y: 0, size: 100, direction: 90, visible: false, costume: 0,
+    costumes: [
+      { name: "Level - 1", file: 'b1eaeaa23d26d78d9e2b43f7caf6c62c.png', cx: 480, cy: 360, res: 2 },
+      { name: "Level - 2", file: 'a6b728d5c392fe765aaa19bfb369f49b.png', cx: 480, cy: 360, res: 2 },
+      { name: "Level - 3", file: '34036255f10500df8ab42bca0f74d123.png', cx: 480, cy: 360, res: 2 },
+      { name: "Level - 4", file: 'ca2516ccfc5640cae0b577c01d72c800.png', cx: 390, cy: 226, res: 2 },
+      { name: "Level - Ending", file: '35170b24119d513fcd85c2c733940a1b.png', cx: 0, cy: 0, res: 2 },
+    ],
+  },
+  // hitbox
+  hitbox: {
+    x: -221, y: 123, size: 100, direction: 90, visible: false, costume: 0,
+    costumes: [
+      { name: "costume2", file: '1c18ef019f9e86ec03013275d2539ec7.png', cx: 13, cy: 49, res: 2 },
+    ],
+  },
+  // Win
+  win: {
+    x: -54, y: 86, size: 100, direction: 90, visible: false, costume: 1,
+    costumes: [
+      { name: "Next Level", file: 'eea96e05f2f4a46795607efd02561e0f.png', cx: 10, cy: 10, res: 2 },
+      { name: "Next Level2", file: '39e62d99177f0b20abebe3eb72276fa2.png', cx: 10, cy: 10, res: 2 },
+    ],
+  },
+  // Portal
+  portal: {
+    x: 201, y: -141, size: 100, direction: -120, visible: false, costume: 0,
+    costumes: [
+      { name: "costume1", file: 'feded506e04bbb4376cc12c7fbcf173c.svg', cx: 21.6166, cy: 20.6793, res: 1 },
+    ],
+  },
+};
+
+const SOUND_FILES = {
+  menuMusic:  'd83c0789b1c2cee8fde47af04c25781d.wav',   // "Main"       — main menu music
+  levelMusic: 'a51ba1b4eb3e2674ed08794340402892.wav',   // "GrassyLand" — level theme
+  death:      '72201218e95ec636d05e2ec4ebf47af1.wav',   // "ded"        — death sound
+};
+
+
+/* ==========================================================================
+   3. MINI SCRATCH RUNTIME
+   ========================================================================== */
+
+// Scratch global variables.
+const vars = {
+  Color: 0,            // hue chosen on the menu (0 – 199)
+  Level: 1,            // current level (1 – 5)
+  CharaAnim: 'idle',   // "idle" or "walk" (Player's local variable)
+};
+
+// Overall state of the port itself (not part of the Scratch project).
+const game = { playing: false };
+
+const runtime = {
+  clock: 0,            // simulated time in seconds
+  threads: [],
+  scripts: [],
+  current: null,       // thread being executed
+};
+
+class Sprite {
+  constructor(name, def) {
+    this.name = name;
+    this.x = def.x || 0;
+    this.y = def.y || 0;
+    this.size = def.size || 100;
+    this.direction = def.direction === undefined ? 90 : def.direction;
+    this.visible = def.visible === undefined ? true : def.visible;
+    this.costumes = def.costumes;
+    this.costumeIndex = def.costume || 0;
+    this.effects = { color: 0, ghost: 0 };
+  }
+
+  get costume() { return this.costumes[this.costumeIndex]; }
+
+  show() { this.visible = true; }
+  hide() { this.visible = false; }
+
+  // "switch costume to <name>"
+  setCostume(name) {
+    const index = this.costumes.findIndex(c => c.name === name);
+    if (index >= 0) this.costumeIndex = index;
+  }
+  // "switch costume to <number>" (1-based, wraps around)
+  setCostumeNumber(n) {
+    const len = this.costumes.length;
+    this.costumeIndex = (((Math.round(n) - 1) % len) + len) % len;
+  }
+  nextCostume() { this.costumeIndex = (this.costumeIndex + 1) % this.costumes.length; }
+
+  // "go to x: y:" — Scratch keeps sprites from leaving the stage completely ("fencing").
+  goTo(x, y) {
+    [x, y] = this.fenced(x, y);
+    this.x = x;
+    this.y = y;
+  }
+  changeX(dx) { this.goTo(this.x + dx, this.y); }
+  changeY(dy) { this.goTo(this.x, this.y + dy); }
+
+  turnRight(degrees) {
+    let d = this.direction + degrees;
+    d = ((d + 180) % 360 + 360) % 360 - 180;
+    this.direction = d === -180 ? 180 : d;
+  }
+
+  fenced(x, y) {
+    const b = boundsOf(this);
+    const left = b.left - STAGE_WIDTH / 2, right = b.right - STAGE_WIDTH / 2;
+    const top = STAGE_HEIGHT / 2 - b.top,  bottom = STAGE_HEIGHT / 2 - b.bottom;
+    const inset = Math.floor(Math.min(right - left, top - bottom) / 2);
+    const sx = STAGE_WIDTH / 2 - Math.min(15, inset);
+    const sy = STAGE_HEIGHT / 2 - Math.min(15, inset);
+    const dx = x - this.x, dy = y - this.y;
+    if (right + dx < -sx) x = Math.ceil(this.x - (sx + right));
+    else if (left + dx > sx) x = Math.floor(this.x + (sx - left));
+    if (top + dy < -sy) y = Math.ceil(this.y - (sy + top));
+    else if (bottom + dy > sy) y = Math.floor(this.y + (sy - bottom));
+    return [x, y];
+  }
+}
+
+const stageTarget = { costumes: SPRITE_DEFS.stage.costumes, costumeIndex: 0 };
+const sprites = {};
+for (const key of Object.keys(SPRITE_DEFS)) {
+  if (key !== 'stage') sprites[key] = new Sprite(key, SPRITE_DEFS[key]);
+}
+const {
+  player, mainMenu, playButton, music, youLabel, colorMarker,
+  levels, lava, lavaHitbox, hitbox, win, portal,
+} = sprites;
+
+// Drawing order, back to front (the layer order stored in the Scratch project).
+const drawOrder = [lava, levels, mainMenu, music, playButton, youLabel, colorMarker, win, portal, player, hitbox, lavaHitbox];
+function goToBack(sprite)  { drawOrder.splice(drawOrder.indexOf(sprite), 1); drawOrder.unshift(sprite); }
+function goToFront(sprite) { drawOrder.splice(drawOrder.indexOf(sprite), 1); drawOrder.push(sprite); }
+
+/* ---- Scripts and threads ------------------------------------------------ */
+
+function whenFlag(sprite, fn)           { runtime.scripts.push({ sprite, fn, trigger: 'flag', thread: null }); }
+function whenReceive(message, sprite, fn) { runtime.scripts.push({ sprite, fn, trigger: message, thread: null }); }
+
+function startScript(script) {
+  if (script.thread) script.thread.dead = true;     // starting a running script restarts it
+  const thread = { script, gen: script.fn(), dead: false };
+  script.thread = thread;
+  runtime.threads.push(thread);
+}
+function broadcast(message) {
+  for (const script of runtime.scripts) if (script.trigger === message) startScript(script);
+}
+function startFlagScripts() {
+  for (const script of runtime.scripts) if (script.trigger === 'flag') startScript(script);
+}
+// "stop other scripts in sprite"
+function stopOtherScriptsInSprite() {
+  const me = runtime.current;
+  for (const t of runtime.threads) {
+    if (t !== me && t.script.sprite === me.script.sprite) t.dead = true;
+  }
+}
+
+function stepThreads() {
+  // The list may grow while we iterate (a broadcast starts new threads).
+  for (let i = 0; i < runtime.threads.length; i++) {
+    const thread = runtime.threads[i];
+    if (thread.dead) continue;
+    runtime.current = thread;
+    if (thread.gen.next().done) thread.dead = true;
+  }
+  runtime.current = null;
+  runtime.threads = runtime.threads.filter(t => !t.dead);
+}
+
+/* ---- Blocks that need more than one frame ------------------------------- */
+
+// "wait <seconds> seconds"
+function* wait(seconds) {
+  const end = runtime.clock + seconds;
+  yield;
+  while (runtime.clock < end - 1e-9) yield;
+}
+// "wait until <condition>"
+function* waitUntil(condition) {
+  while (!condition()) yield;
+}
+// "glide <seconds> secs to x: y:"
+function* glideTo(sprite, seconds, x, y) {
+  const x0 = sprite.x, y0 = sprite.y, start = runtime.clock;
+  for (;;) {
+    const t = (runtime.clock - start) / seconds;
+    if (t >= 1) { sprite.goTo(x, y); return; }
+    sprite.goTo(x0 + (x - x0) * t, y0 + (y - y0) * t);
+    yield;
+  }
+}
+
+
+/* ==========================================================================
+   4. INPUT
+   Keys and mouse are polled once per tick, like in Scratch. A key or click
+   that starts and ends between two ticks still counts for one tick.
+   ========================================================================== */
+
+const keys = {
+  down: new Set(),
+  tapped: new Set(),      // keys pressed since the last tick
+  pressed(name) { return this.down.has(name) || this.tapped.has(name); },
+  endTick() { this.tapped.clear(); },
+};
+const mouse = {
+  x: 0, y: 0,             // in Scratch stage coordinates
+  inside: false,
+  isDown: false,
+  tappedDown: false,
+  pressed() { return this.isDown || this.tappedDown; },
+  endTick() { this.tappedDown = false; },
+};
+
+// Scratch key names used by the project -> KeyboardEvent.key (lower-case).
+const KEY_NAMES = {
+  'up arrow': 'arrowup', 'down arrow': 'arrowdown',
+  'left arrow': 'arrowleft', 'right arrow': 'arrowright',
+};
+keys.pressedScratch = function (scratchName) {
+  return this.pressed(KEY_NAMES[scratchName] || scratchName);
+};
+
+window.addEventListener('keydown', event => {
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
+  const key = event.key.toLowerCase();
+  if (game.playing && key.startsWith('arrow') && !isTextField(event.target)) event.preventDefault();
+  keys.down.add(key);
+  keys.tapped.add(key);
+  if (!event.repeat) handleEmojiHotkey(event);
+});
+window.addEventListener('keyup', event => keys.down.delete(event.key.toLowerCase()));
+window.addEventListener('blur', () => { keys.down.clear(); mouse.isDown = false; });
+
+function isTextField(el) {
+  return el && (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && el.type === 'text'));
+}
+
+function updateMouse(event) {
+  const rect = screenCanvas.getBoundingClientRect();
+  mouse.x = (event.clientX - rect.left) / rect.width * STAGE_WIDTH - STAGE_WIDTH / 2;
+  mouse.y = STAGE_HEIGHT / 2 - (event.clientY - rect.top) / rect.height * STAGE_HEIGHT;
+}
+
+
+/* ==========================================================================
+   5. PIXEL COLLISION  ("touching" blocks)
+   Scratch tests collisions on the visible pixels of the sprites, ignoring
+   ghost and colour effects. Sprites with ghost = 100 can still touch.
+   ========================================================================== */
+
+// Where a sprite is drawn: canvas-space centre, rotation (radians) and scale.
+function placement(sprite) {
+  const c = sprite.costume;
+  return {
+    cx: STAGE_WIDTH / 2 + sprite.x,
+    cy: STAGE_HEIGHT / 2 - sprite.y,
+    rotation: (sprite.direction - 90) * Math.PI / 180,
+    scale: sprite.size / 100 / c.res,
+  };
+}
+
+// Axis-aligned bounding box in canvas space (y grows downwards).
+function boundsOf(sprite) {
+  const c = sprite.costume, p = placement(sprite);
+  const w = c.img.naturalWidth, h = c.img.naturalHeight;
+  const cos = Math.cos(p.rotation), sin = Math.sin(p.rotation);
+  let left = Infinity, right = -Infinity, top = Infinity, bottom = -Infinity;
+  for (const [px, py] of [[-c.cx, -c.cy], [w - c.cx, -c.cy], [w - c.cx, h - c.cy], [-c.cx, h - c.cy]]) {
+    const x = p.cx + (px * cos - py * sin) * p.scale;
+    const y = p.cy + (px * sin + py * cos) * p.scale;
+    left = Math.min(left, x); right = Math.max(right, x);
+    top = Math.min(top, y);   bottom = Math.max(bottom, y);
+  }
+  return { left, right, top, bottom };
+}
+
+const maskA = makeMaskCanvas();
+const maskB = makeMaskCanvas();
+function makeMaskCanvas() {
+  const canvas = document.createElement('canvas');
+  canvas.width = STAGE_WIDTH;
+  canvas.height = STAGE_HEIGHT;
+  return { canvas, ctx: canvas.getContext('2d', { willReadFrequently: true }) };
+}
+
+// Draws one sprite into a mask canvas and returns the pixels of the region.
+function rasterize(mask, sprite, x0, y0, w, h) {
+  const { ctx } = mask;
+  const c = sprite.costume, p = placement(sprite);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  ctx.setTransform(1, 0, 0, 1, -x0, -y0);
+  ctx.translate(p.cx, p.cy);
+  ctx.rotate(p.rotation);
+  ctx.scale(p.scale, p.scale);
+  ctx.drawImage(c.img, -c.cx, -c.cy);
+  return ctx.getImageData(0, 0, w, h).data;
+}
+
+// "touching <sprite>?"
+function touching(a, b) {
+  if (!a.visible || !b.visible) return false;
+  const ba = boundsOf(a), bb = boundsOf(b);
+  const left = Math.max(ba.left, bb.left, 0), right = Math.min(ba.right, bb.right, STAGE_WIDTH);
+  const top = Math.max(ba.top, bb.top, 0),    bottom = Math.min(ba.bottom, bb.bottom, STAGE_HEIGHT);
+  if (left >= right || top >= bottom) return false;
+
+  const x0 = Math.floor(left), y0 = Math.floor(top);
+  const w = Math.ceil(right) - x0, h = Math.ceil(bottom) - y0;
+  const pa = rasterize(maskA, a, x0, y0, w, h);
+  const pb = rasterize(maskB, b, x0, y0, w, h);
+  for (let i = 3; i < pa.length; i += 4) {
+    if (pa[i] > 0 && pb[i] > 0) return true;
+  }
+  return false;
+}
+
+// "touching mouse-pointer?"
+function touchingMouse(sprite) {
+  if (!sprite.visible || !mouse.inside) return false;
+  const c = sprite.costume, p = placement(sprite);
+  const dx = (STAGE_WIDTH / 2 + mouse.x) - p.cx;
+  const dy = (STAGE_HEIGHT / 2 - mouse.y) - p.cy;
+  const cos = Math.cos(p.rotation), sin = Math.sin(p.rotation);
+  const px = Math.floor((dx * cos + dy * sin) / p.scale + c.cx);
+  const py = Math.floor((-dx * sin + dy * cos) / p.scale + c.cy);
+  const alpha = alphaMask(c);
+  if (px < 0 || py < 0 || px >= alpha.w || py >= alpha.h) return false;
+  return alpha.data[(py * alpha.w + px) * 4 + 3] > 0;
+}
+function alphaMask(costume) {
+  if (!costume.alpha) {
+    const w = costume.img.naturalWidth, h = costume.img.naturalHeight;
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(costume.img, 0, 0);
+    costume.alpha = { w, h, data: ctx.getImageData(0, 0, w, h).data };
+  }
+  return costume.alpha;
+}
+
+
+/* ==========================================================================
+   6. RENDERING
+   ========================================================================== */
+
+const screenCanvas = document.getElementById('screen');
+const ctx = screenCanvas.getContext('2d');
+
+/* ---- Colour effect -------------------------------------------------------
+   Scratch's "color" effect shifts the hue. 200 units = one full turn.
+   Near-black and near-grey pixels get a minimum saturation so that they
+   change too, exactly like Scratch's own shader does.                      */
+
+const tintCache = new Map();           // small LRU cache of recoloured costumes
+const TINT_CACHE_LIMIT = 64;
+
+function wrapEffect(value) { return ((value % 200) + 200) % 200; }
+
+function tintedSource(costume, colorEffect) {
+  const effect = wrapEffect(colorEffect);
+  if (effect === 0) return { source: costume.img, k: 1 };
+
+  const key = costume.file + '|' + effect.toFixed(2);
+  if (tintCache.has(key)) {
+    const hit = tintCache.get(key);
+    tintCache.delete(key); tintCache.set(key, hit);       // mark as recently used
+    return hit;
+  }
+
+  const k = costume.file.endsWith('.svg') ? RENDER_SCALE : 1;   // vectors can be drawn sharper
+  const w = Math.max(1, Math.round(costume.img.naturalWidth * k));
+  const h = Math.max(1, Math.round(costume.img.naturalHeight * k));
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const c2d = canvas.getContext('2d', { willReadFrequently: true });
+  c2d.drawImage(costume.img, 0, 0, w, h);
+  const image = c2d.getImageData(0, 0, w, h);
+  shiftHue(image.data, effect / 200);
+  c2d.putImageData(image, 0, 0);
+
+  const entry = { source: canvas, k };
+  tintCache.set(key, entry);
+  if (tintCache.size > TINT_CACHE_LIMIT) tintCache.delete(tintCache.keys().next().value);
+  return entry;
+}
+
+function shiftHue(data, shift) {
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] === 0) continue;
+    const r = data[i] / 255, g = data[i + 1] / 255, b = data[i + 2] / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+    let h = 0, s = max === 0 ? 0 : d / max, v = max;
+    if (d !== 0) {
+      if (max === r)      h = ((g - b) / d + 6) % 6;
+      else if (max === g) h = (b - r) / d + 2;
+      else                h = (r - g) / d + 4;
+      h /= 6;
+    }
+    if (v < 0.055)       { h = 0; s = 1; v = 0.055; }
+    else if (s < 0.09)   { h = 0; s = 0.09; }
+    h = (h + shift) % 1;
+
+    // HSV -> RGB
+    const f = h * 6, sector = Math.floor(f) % 6, frac = f - Math.floor(f);
+    const p = v * (1 - s), q = v * (1 - s * frac), t = v * (1 - s * (1 - frac));
+    const rgb = [[v, t, p], [q, v, p], [p, v, t], [p, q, v], [t, p, v], [v, p, q]][sector];
+    data[i] = rgb[0] * 255; data[i + 1] = rgb[1] * 255; data[i + 2] = rgb[2] * 255;
+  }
+}
+
+/* ---- Drawing -------------------------------------------------------------- */
+
+// Draws any sprite-like object: { x, y, size, direction, costume, ghost, color }.
+function drawCostume(target, costume, colorEffect, ghost) {
+  if (ghost >= 100) return;                                  // fully transparent
+  const { source, k } = tintedSource(costume, colorEffect);
+  const p = placement(target);
+  ctx.save();
+  ctx.globalAlpha = 1 - ghost / 100;
+  ctx.translate(p.cx, p.cy);
+  ctx.rotate(p.rotation);
+  ctx.scale(p.scale / k, p.scale / k);
+  ctx.drawImage(source, -costume.cx * k, -costume.cy * k);
+  ctx.restore();
+}
+
+function drawSprite(sprite) {
+  if (!sprite.visible) return;
+  drawCostume(sprite, sprite.costume, sprite.effects.color, sprite.effects.ghost);
+}
+
+function render() {
+  ctx.setTransform(RENDER_SCALE, 0, 0, RENDER_SCALE, 0, 0);
+  ctx.clearRect(0, 0, STAGE_WIDTH, STAGE_HEIGHT);
+
+  // Backdrop ("Rock")
+  const backdrop = stageTarget.costumes[stageTarget.costumeIndex];
+  ctx.drawImage(backdrop.img, -backdrop.cx / backdrop.res + STAGE_WIDTH / 2, -backdrop.cy / backdrop.res + STAGE_HEIGHT / 2,
+                backdrop.img.naturalWidth / backdrop.res, backdrop.img.naturalHeight / backdrop.res);
+
+  for (const sprite of drawOrder) {
+    if (sprite === player) drawRemotePlayers();   // other players sit just below your own character
+    drawSprite(sprite);
+  }
+  drawEmojiBubbles();
+}
+
+
+/* ==========================================================================
+   7. AUDIO
+   Browsers block sound until the player interacts with the page, so music
+   that was started earlier waits for the first click or key press.
+   ========================================================================== */
+
+const sounds = {};
+const pendingSounds = new Set();
+
+function loadSounds() {
+  for (const [name, file] of Object.entries(SOUND_FILES)) {
+    const audio = new Audio(ASSET_DIR + file);
+    audio.preload = 'auto';
+    sounds[name] = audio;
+  }
+}
+function playSound(name, { loop = false, volume = 1 } = {}) {
+  const audio = sounds[name];
+  if (!audio) return;
+  audio.loop = loop;
+  audio.volume = volume;
+  audio.currentTime = 0;
+  const attempt = audio.play();
+  if (attempt && attempt.catch) attempt.catch(() => pendingSounds.add(name));   // blocked: retry later
+}
+function stopSound(name) {
+  const audio = sounds[name];
+  if (!audio) return;
+  audio.pause();
+  audio.currentTime = 0;
+  pendingSounds.delete(name);
+}
+function retryBlockedSounds() {
+  for (const name of pendingSounds) {
+    const attempt = sounds[name].play();
+    if (attempt && attempt.then) attempt.then(() => pendingSounds.delete(name)).catch(() => {});
+  }
+}
+for (const type of ['pointerdown', 'keydown']) window.addEventListener(type, retryBlockedSounds);
+
+
+/* ==========================================================================
+   8. THE GAME'S SCRIPTS
+   One section per Scratch sprite. Comments show the original Scratch hat blocks.
+   ========================================================================== */
+
+/* ---- Stage ----------------------------------------------------------------
+   "when flag clicked: switch backdrop to Level - 1" does nothing (the stage
+   only has a "Rock" backdrop), so it is not repeated here.                  */
+whenReceive('Next - Level', stageTarget, function* () {
+  stageTarget.costumeIndex = (stageTarget.costumeIndex + 1) % stageTarget.costumes.length;
+});
+
+// Port-specific: remember that the match has started (used by online mode).
+whenReceive('Play', stageTarget, function* () {
+  game.playing = true;
+  onlineSendNow();
+});
+
+
+/* ---- Main - Menu ---------------------------------------------------------- */
+whenFlag(mainMenu, function* () {
+  mainMenu.goTo(0, 0);
+  mainMenu.show();
+});
+whenReceive('Play', mainMenu, function* () {
+  mainMenu.hide();
+});
+
+
+/* ---- Play (the start button) ---------------------------------------------- */
+whenFlag(playButton, function* () {
+  playButton.goTo(0, -21);
+  playButton.size = 70;
+  playButton.show();
+  // Wait for a click on the button, then for it to be released.
+  yield* waitUntil(() => mouse.pressed() && touchingMouse(playButton));
+  yield* waitUntil(() => !(mouse.pressed() && touchingMouse(playButton)));
+  broadcast('Play');
+  playButton.hide();
+});
+whenReceive('Play', playButton, function* () {
+  playButton.hide();
+});
+
+
+/* ---- Music ---------------------------------------------------------------- */
+// "forever: play sound Main until done" — a looping sound does the same without a gap.
+whenFlag(music, function* () {
+  playSound('menuMusic', { loop: true, volume: 0.5 });      // volume set to 50
+});
+whenReceive('Play', music, function* () {
+  stopOtherScriptsInSprite();
+  stopSound('menuMusic');
+  playSound('levelMusic', { loop: true, volume: 0.5 });
+});
+
+
+/* ---- You (the "You" label with the chosen colour) -------------------------- */
+whenFlag(youLabel, function* () {
+  youLabel.size = 90;
+  vars.Color = 0;
+  ui.showColorMonitor(true);
+  youLabel.show();
+  for (;;) {
+    youLabel.effects.color = vars.Color;
+    yield;
+  }
+});
+whenReceive('Play', youLabel, function* () {
+  ui.showColorMonitor(false);
+  youLabel.hide();
+});
+
+
+/* ---- yu (the colour-cycling marker) ---------------------------------------- */
+whenFlag(colorMarker, function* () {
+  colorMarker.effects.color = 0;
+  colorMarker.goTo(-125, -76);
+  colorMarker.show();
+  for (;;) {
+    colorMarker.effects.color += 2;
+    yield;
+  }
+});
+whenReceive('Play', colorMarker, function* () {
+  colorMarker.hide();
+});
+
+
+/* ---- Levels (the level artwork) -------------------------------------------- */
+whenFlag(levels, function* () {
+  goToBack(levels);
+  levels.goTo(0, 0);
+  levels.hide();
+});
+whenReceive('Play', levels, function* () {
+  vars.Level = 1;
+  levels.setCostume('Level - 1');
+  levels.show();
+});
+whenReceive('Next - Level', levels, function* () {
+  vars.Level += 1;
+  levels.nextCostume();
+});
+
+
+/* ---- lava (the animated lava seen through the level) ------------------------ */
+whenFlag(lava, function* () {
+  lava.hide();
+  goToBack(lava);
+});
+whenReceive('Play', lava, function* () {
+  lava.setCostumeNumber(1 + Math.floor(Math.random() * 4));   // pick random 1 to 4
+  lava.goTo(-25, -5);
+  lava.show();
+  for (;;) {
+    goToBack(lava);
+    yield;
+  }
+});
+whenReceive('Play', lava, function* () {
+  for (;;) {
+    yield* glideTo(lava, 9, -25, -5);
+    yield* glideTo(lava, 9, 11, 109);
+    yield* glideTo(lava, 9, 14, -9);
+  }
+});
+whenReceive('Next - Level', lava, function* () {
+  lava.nextCostume();
+});
+
+
+/* ---- lava hitbox (invisible lava shape of the current level) ------------------ */
+whenFlag(lavaHitbox, function* () {
+  goToFront(lavaHitbox);
+  lavaHitbox.goTo(0, 0);
+  lavaHitbox.hide();
+});
+whenReceive('Play', lavaHitbox, function* () {
+  lavaHitbox.effects.ghost = 100;
+  lavaHitbox.setCostume('Level - 1');
+  lavaHitbox.show();
+});
+whenReceive('Next - Level', lavaHitbox, function* () {
+  lavaHitbox.nextCostume();
+});
+
+
+/* ---- hitbox (invisible shape that follows the player and detects lava) ---------- */
+whenFlag(hitbox, function* () {
+  hitbox.hide();
+});
+whenReceive('Play', hitbox, function* () {
+  hitbox.effects.ghost = 100;
+  goToFront(hitbox);
+  hitbox.show();
+  for (;;) {
+    hitbox.goTo(player.x, player.y);
+    yield;
+  }
+});
+whenReceive('Play', hitbox, function* () {
+  for (;;) {
+    if (touching(hitbox, lavaHitbox)) broadcast('yu ded');
+    yield;
+  }
+});
+whenReceive('Next - Level', hitbox, function* () {
+  hitbox.effects.ghost = 100;
+  goToFront(hitbox);
+  hitbox.show();
+});
+
+
+/* ---- Win (the level exit) -------------------------------------------------- */
+whenFlag(win, function* () {
+  vars.Level = 1;
+  win.hide();
+});
+whenReceive('Play', win, function* () {
+  win.show();
+  for (;;) {
+    yield* wait(0.2);
+    win.setCostume('Next Level');
+    yield* wait(0.2);
+    win.setCostume('Next Level2');
+    yield;
+  }
+});
+whenReceive('Play', win, function* () {
+  if (vars.Level === 1) win.goTo(-54, 86);
+});
+whenReceive('Next - Level', win, function* () {
+  yield* wait(0.1);
+  win.show();
+
+  if (vars.Level === 1) win.goTo(-54, 86);
+  if (vars.Level === 2) win.goTo(-56, 64);
+
+  if (vars.Level === 3) {
+    // Level 3 hides a secret: the exit only moves to its real place after a key sequence.
+    win.goTo(-115, -84);
+    for (let i = 0; i < 2; i++) yield* tapKey('up arrow');
+    for (let i = 0; i < 2; i++) yield* tapKey('down arrow');
+    for (let i = 0; i < 2; i++) {
+      yield* tapKey('left arrow');
+      yield* tapKey('right arrow');
+    }
+    yield* tapKey('b');
+    yield* tapKey('a');
+    yield* glideTo(win, 0.5, -195, -84);
+  }
+
+  if (vars.Level === 4) win.goTo(-4, 23);
+  if (vars.Level === 5) win.hide();
+});
+
+// Helper for the sequence above: wait until a key is pressed, then until it is released.
+function* tapKey(name) {
+  yield* waitUntil(() => keys.pressedScratch(name));
+  yield* waitUntil(() => !keys.pressedScratch(name));
+}
+
+
+/* ---- Portal (spins; only appears in level 4) --------------------------------- */
+whenFlag(portal, function* () {
+  portal.hide();
+  for (;;) {
+    portal.turnRight(15);
+    yield;
+  }
+});
+whenReceive('Play', portal, function* () {
+  for (;;) {
+    if (vars.Level === 4) {
+      portal.show();
+      portal.goTo(201, -141);
+    } else {
+      portal.hide();
+    }
+    yield;
+  }
+});
+
+
+/* ---- Player ------------------------------------------------------------------- */
+whenFlag(player, function* () {
+  player.hide();
+  for (;;) {
+    player.effects.color = vars.Color;
+    yield;
+  }
+});
+
+// Idle animation.
+whenReceive('Play', player, function* () {
+  player.goTo(START.x, START.y);
+  for (;;) {
+    if (vars.CharaAnim === 'idle') {
+      yield* wait(0.5);
+      player.setCostume('idle - 1');
+      yield* wait(0.4);
+      player.setCostume('idle - 2');
+    }
+    yield;
+  }
+});
+
+// Walking animation.
+whenReceive('Play', player, function* () {
+  player.show();
+  for (;;) {
+    if (vars.CharaAnim === 'walk') {
+      yield* wait(0.2);
+      player.setCostume('walk - 1');
+      yield* wait(0.2);
+      player.setCostume('walk - 2');
+    }
+    yield;
+  }
+});
+
+// Reaching the exit: go back to the start and load the next level.
+whenReceive('Play', player, function* () {
+  for (;;) {
+    if (touching(player, win)) {
+      player.goTo(START.x, START.y);
+      broadcast('Next - Level');
+    }
+    yield;
+  }
+});
+
+// Movement: W A S D, 5 pixels per frame.
+whenReceive('Play', player, function* () {
+  for (;;) {
+    if (keys.pressedScratch('d')) player.changeX(5);
+    if (keys.pressedScratch('a')) player.changeX(-5);
+    if (keys.pressedScratch('w')) player.changeY(5);
+    if (keys.pressedScratch('s')) player.changeY(-5);
+    yield;
+  }
+});
+
+// Choose between the idle and walking animation.
+whenReceive('Play', player, function* () {
+  for (;;) {
+    const idle = !keys.pressedScratch('s') && !keys.pressedScratch('w') &&
+                 !keys.pressedScratch('a') && !keys.pressedScratch('d');
+    vars.CharaAnim = idle ? 'idle' : 'walk';
+    yield;
+  }
+});
+
+// Death: play the sound and go back to the start.
+whenReceive('yu ded', player, function* () {
+  playSound('death');
+  player.goTo(START.x, START.y);
+});
+
+// Level 4 portal: teleports the player.
+whenReceive('Play', player, function* () {
+  for (;;) {
+    if (touching(player, portal)) {
+      if (vars.Level === 4) player.goTo(23, -2);
+    }
+    yield;
+  }
+});
+
+
+/* ==========================================================================
+   9. ONLINE MODE (PeerJS)
+   - No room code: everybody joins the same lobby. The first player claims a
+     fixed PeerJS id (ONLINE.lobbyId) and acts as a "phone book": a newcomer
+     asks it for the list of players and then connects to each of them directly.
+   - If the phone-book player leaves, another player takes over that id.
+   - Peers only exchange tiny, validated messages: position, costume, colour,
+     level, and an emoji index. Nothing else is accepted.
+   ========================================================================== */
+
+const online = {
+  enabled: true,
+  session: 0,            // changes every time online mode is switched on/off
+  me: null,              // our own Peer
+  myId: null,
+  lobbyPeer: null,       // set while we hold the lobby id
+  remotes: new Map(),    // peer id -> remote player
+  status: 'Connecting…',
+  statusState: 'busy',
+  lastSent: '',
+  ticksSinceSend: 0,
+  myBubble: null,        // { index, until }
+  lastEmojiAt: 0,
+  timers: new Set(),
+};
+
+function setOnlineStatus(text, state) {
+  online.status = text;
+  online.statusState = state;
+  ui.renderOnline();
+}
+function later(ms, fn) {
+  const session = online.session;
+  const id = setTimeout(() => { online.timers.delete(id); if (session === online.session) fn(); }, ms);
+  online.timers.add(id);
+}
+
+function startOnline() {
+  if (typeof Peer === 'undefined') {
+    setOnlineStatus('Online mode is unavailable (PeerJS could not be loaded).', 'error');
+    return;
+  }
+  const session = ++online.session;
+  setOnlineStatus('Connecting…', 'busy');
+
+  const me = new Peer();
+  online.me = me;
+
+  me.on('open', id => {
+    if (session !== online.session) return;
+    online.myId = id;
+    discoverLobby();
+  });
+  me.on('connection', conn => registerConnection(conn));
+  me.on('disconnected', () => {
+    if (session === online.session && !me.destroyed) later(2000, () => me.reconnect());
+  });
+  me.on('error', err => {
+    if (session !== online.session) return;
+    if (err.type === 'peer-unavailable') {
+      // Either a player left or the lobby id is free again: look again.
+      if (String(err.message).includes(ONLINE.lobbyId)) later(1500 + Math.random() * 1500, discoverLobby);
+      return;
+    }
+    setOnlineStatus('Connection problem. Retrying…', 'error');
+    later(5000, () => { stopOnline(); online.enabled && startOnline(); });
+  });
+}
+
+function stopOnline() {
+  online.session++;
+  for (const id of online.timers) clearTimeout(id);
+  online.timers.clear();
+  for (const remote of online.remotes.values()) { try { remote.conn.close(); } catch (e) { /* ignore */ } }
+  online.remotes.clear();
+  if (online.lobbyPeer) { try { online.lobbyPeer.destroy(); } catch (e) { /* ignore */ } }
+  if (online.me)        { try { online.me.destroy(); }        catch (e) { /* ignore */ } }
+  online.lobbyPeer = online.me = online.myId = null;
+  online.lastSent = '';
+  ui.renderOnline();
+}
+
+/* ---- Finding other players ---------------------------------------------------- */
+
+async function discoverLobby() {
+  const session = online.session;
+  if (!online.me || online.lobbyPeer) return;
+  const claimed = await claimLobby();
+  if (session !== online.session) return;
+  if (claimed) { updateOnlineStatus(); return; }
+  askLobbyForPlayers();
+}
+
+// Try to take the fixed lobby id. Succeeds only if nobody else has it.
+function claimLobby() {
+  return new Promise(resolve => {
+    const session = online.session;
+    const lobby = new Peer(ONLINE.lobbyId);
+    let settled = false;
+
+    lobby.on('open', () => {
+      settled = true;
+      if (session !== online.session) { lobby.destroy(); return resolve(false); }
+      online.lobbyPeer = lobby;
+      resolve(true);
+    });
+    lobby.on('connection', conn => {
+      conn.on('data', data => {
+        if (data && data.t === 'hello') {
+          conn.send({ t: 'peers', ids: [online.myId, ...onlinePeerIds()].filter(Boolean) });
+          setTimeout(() => { try { conn.close(); } catch (e) { /* ignore */ } }, 1500);
+        }
+      });
+    });
+    lobby.on('disconnected', () => { if (online.lobbyPeer === lobby && !lobby.destroyed) lobby.reconnect(); });
+    lobby.on('error', () => {
+      if (!settled) { settled = true; lobby.destroy(); resolve(false); return; }
+      if (online.lobbyPeer === lobby) { online.lobbyPeer = null; lobby.destroy(); }   // lost the id; someone else will take it
+    });
+  });
+}
+
+// Ask the lobby holder who is online, then connect to everybody.
+function askLobbyForPlayers() {
+  const session = online.session;
+  const conn = online.me.connect(ONLINE.lobbyId, { reliable: true });
+  const giveUp = setTimeout(() => {
+    try { conn.close(); } catch (e) { /* ignore */ }
+    if (session === online.session) discoverLobby();
+  }, 7000);
+
+  conn.on('open', () => conn.send({ t: 'hello' }));
+  conn.on('data', data => {
+    if (!data || data.t !== 'peers' || !Array.isArray(data.ids)) return;
+    clearTimeout(giveUp);
+    for (const id of data.ids.slice(0, ONLINE.maxPlayers)) {
+      if (typeof id === 'string' && id.length < 64 && id !== online.myId) connectTo(id);
+    }
+    try { conn.close(); } catch (e) { /* ignore */ }
+    updateOnlineStatus();
+  });
+}
+
+function onlinePeerIds() {
+  return [...online.remotes.entries()].filter(([, r]) => r.open).map(([id]) => id);
+}
+
+function connectTo(id) {
+  if (online.remotes.has(id) || online.remotes.size >= ONLINE.maxPlayers - 1) return;
+  registerConnection(online.me.connect(id, { reliable: true }));
+}
+
+/* ---- Connections to other players ------------------------------------------------- */
+
+function registerConnection(conn) {
+  const id = conn.peer;
+  if (online.remotes.has(id) || online.remotes.size >= ONLINE.maxPlayers - 1) {
+    conn.on('open', () => conn.close());
+    return;
+  }
+  const remote = {
+    id, conn, open: false,
+    name: 'Player ' + id.slice(0, 4).toUpperCase(),
+    x: 0, y: 0, shownX: 0, shownY: 0,
+    costume: 0, color: 0, level: 1, playing: false,
+    hasState: false, lastStateAt: 0, lastEmojiAt: 0, bubble: null,
+  };
+  online.remotes.set(id, remote);
+
+  conn.on('open', () => {
+    remote.open = true;
+    online.lastSent = '';           // make sure the newcomer gets our state
+    updateOnlineStatus();
+  });
+  conn.on('data', data => handleRemoteMessage(remote, data));
+  const drop = () => dropRemote(id);
+  conn.on('close', drop);
+  conn.on('error', drop);
+}
+
+function dropRemote(id) {
+  if (!online.remotes.delete(id)) return;
+  updateOnlineStatus();
+  // If the lobby holder was the one who left, one of us has to take over the lobby id.
+  if (!online.lobbyPeer) later(500 + Math.random() * 2500, discoverLobby);
+}
+
+function updateOnlineStatus() {
+  if (!online.enabled || !online.me) return;
+  const count = onlinePeerIds().length + 1;
+  if (count === 1) setOnlineStatus('Online. Waiting for other players…', 'online');
+  else setOnlineStatus(`Online. ${count} players connected.`, 'online');
+}
+
+/* ---- Messages (all input from other players is validated) -------------------------- */
+
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const isNum = v => typeof v === 'number' && Number.isFinite(v);
+
+function handleRemoteMessage(remote, data) {
+  if (!data || typeof data !== 'object') return;
+  const now = performance.now();
+
+  if (data.t === 's') {                                   // state
+    if (now - remote.lastStateAt < 25) return;            // ignore floods
+    if (!isNum(data.x) || !isNum(data.y) || !isNum(data.k) || !isNum(data.h) || !isNum(data.l)) return;
+    remote.lastStateAt = now;
+    remote.x = clamp(data.x, -400, 400);
+    remote.y = clamp(data.y, -300, 300);
+    remote.costume = clamp(Math.round(data.k), 0, player.costumes.length - 1);
+    remote.color = wrapEffect(Math.round(data.h));
+    remote.level = clamp(Math.round(data.l), 1, 5);
+    remote.playing = data.p === true;
+    if (!remote.hasState || Math.hypot(remote.x - remote.shownX, remote.y - remote.shownY) > 120) {
+      remote.shownX = remote.x; remote.shownY = remote.y;  // first sight or teleport: no sliding
+    }
+    remote.hasState = true;
+    ui.renderOnline();
+  } else if (data.t === 'e') {                            // emoji
+    if (now - remote.lastEmojiAt < 500) return;
+    const index = Math.round(data.i);
+    if (!isNum(data.i) || index < 0 || index >= EMOJIS.length) return;
+    remote.lastEmojiAt = now;
+    remote.bubble = { index, until: now + ONLINE.bubbleMs };
+    ui.addChat(remote.name, index);
+  }
+}
+
+function sendToAll(message) {
+  for (const remote of online.remotes.values()) {
+    if (remote.open) { try { remote.conn.send(message); } catch (e) { /* ignore */ } }
+  }
+}
+
+function currentStateMessage() {
+  return {
+    t: 's',
+    x: Math.round(player.x), y: Math.round(player.y),
+    k: player.costumeIndex, h: vars.Color, l: vars.Level, p: game.playing,
+  };
+}
+function onlineSendNow() { online.lastSent = ''; }
+
+// Called once per tick.
+function onlineTick() {
+  // Smooth the movement of other players between updates.
+  for (const r of online.remotes.values()) {
+    r.shownX += (r.x - r.shownX) * 0.4;
+    r.shownY += (r.y - r.shownY) * 0.4;
+  }
+  if (!online.enabled || online.remotes.size === 0) return;
+  if (++online.ticksSinceSend < ONLINE.stateEveryTicks) return;
+  online.ticksSinceSend = 0;
+
+  const message = currentStateMessage();
+  const serialized = JSON.stringify(message);
+  if (serialized !== online.lastSent || runtime.clock % (ONLINE.heartbeatTicks * TICK) < TICK) {
+    online.lastSent = serialized;
+    sendToAll(message);
+  }
+}
+
+/* ---- Other players on screen -------------------------------------------------------- */
+
+function drawRemotePlayers() {
+  if (!game.playing || !online.enabled) return;
+  for (const r of online.remotes.values()) {
+    if (!r.open || !r.hasState || !r.playing || r.level !== vars.Level) continue;
+    const ghostPlayer = { x: r.shownX, y: r.shownY, size: player.size, direction: 90, costume: player.costumes[r.costume] };
+    ghostPlayer.costume = player.costumes[r.costume];
+    drawCostume(ghostPlayer, ghostPlayer.costume, r.color, 0);
+  }
+}
+
+// Emoji speech bubbles above the characters.
+function drawEmojiBubbles() {
+  const now = performance.now();
+  if (!game.playing) return;
+  if (online.myBubble && online.myBubble.until > now) drawBubble(player.x, player.y, online.myBubble.index);
+  for (const r of online.remotes.values()) {
+    if (r.bubble && r.bubble.until > now && r.playing && r.level === vars.Level) {
+      drawBubble(r.shownX, r.shownY, r.bubble.index);
+    }
+  }
+}
+function drawBubble(x, y, emojiIndex) {
+  // Place the bubble above the top of the character's costume.
+  const costume = player.costume;
+  const top = y + costume.cy / costume.res * player.size / 100;
+  const cx = STAGE_WIDTH / 2 + x;
+  const cy = STAGE_HEIGHT / 2 - top - 20;
+  ctx.save();
+  ctx.fillStyle = '#fff';
+  ctx.strokeStyle = 'rgba(0,0,0,.35)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(cx - 15, cy - 14, 30, 28, 9);
+  ctx.moveTo(cx - 5, cy + 14); ctx.lineTo(cx, cy + 21); ctx.lineTo(cx + 5, cy + 14);
+  ctx.fill(); ctx.stroke();
+  ctx.font = '19px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(EMOJIS[emojiIndex].char, cx, cy + 1);
+  ctx.restore();
+}
+
+/* ---- Sending an emoji ------------------------------------------------------------------ */
+
+function sendEmoji(index) {
+  const now = performance.now();
+  if (!online.enabled || !online.me || now - online.lastEmojiAt < ONLINE.emojiCooldownMs) return;
+  online.lastEmojiAt = now;
+  online.myBubble = { index, until: now + ONLINE.bubbleMs };
+  sendToAll({ t: 'e', i: index });
+  ui.addChat('You', index);
+  ui.flashEmojiCooldown();
+}
+function handleEmojiHotkey(event) {
+  if (document.getElementById('creditsDialog').open || isTextField(event.target)) return;
+  if (!/^[0-9]$/.test(event.key)) return;
+  const index = event.key === '0' ? 9 : Number(event.key) - 1;
+  if (index < EMOJIS.length) sendEmoji(index);
+}
+
+
+/* ==========================================================================
+   10. PAGE INTERFACE
+   ========================================================================== */
+
+const ui = (() => {
+  const $ = id => document.getElementById(id);
+  const colorMonitor = $('colorMonitor'), colorSlider = $('colorSlider'), colorValue = $('colorValue');
+  const statusEl = $('onlineStatus'), listEl = $('playerList'), logEl = $('chatLog'), barEl = $('emojiBar');
+  const toggle = $('onlineToggle'), dialog = $('creditsDialog');
+  const MAX_LOG = 5;
+
+  // Colour slider (the Scratch "Color" monitor).
+  colorSlider.addEventListener('input', () => {
+    vars.Color = Number(colorSlider.value);
+    colorValue.textContent = colorSlider.value;
+  });
+
+  // Emoji buttons.
+  EMOJIS.forEach((emoji, index) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = emoji.char;
+    button.title = `${emoji.label} (key ${(index + 1) % 10})`;
+    button.setAttribute('aria-label', emoji.label);
+    button.addEventListener('click', () => sendEmoji(index));
+    barEl.appendChild(button);
+  });
+
+  // Online switch.
+  toggle.addEventListener('change', () => {
+    online.enabled = toggle.checked;
+    if (online.enabled) startOnline();
+    else { stopOnline(); setOnlineStatus('Online mode is off.', 'off'); }
+    renderOnline();
+  });
+
+  // Credits dialog.
+  $('creditsButton').addEventListener('click', () => dialog.showModal());
+  $('creditsClose').addEventListener('click', () => dialog.close());
+  dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); });
+
+  function showColorMonitor(visible) { colorMonitor.hidden = !visible; }
+
+  function renderOnline() {
+    statusEl.textContent = online.enabled ? online.status : 'Online mode is off.';
+    statusEl.dataset.state = online.enabled ? online.statusState : 'off';
+    for (const b of barEl.children) b.disabled = !online.enabled;
+
+    listEl.replaceChildren();
+    const addRow = (name, detail) => {
+      const li = document.createElement('li');
+      const n = document.createElement('span'); n.textContent = name;
+      const d = document.createElement('span'); d.className = 'detail'; d.textContent = detail;
+      li.append(n, d);
+      listEl.appendChild(li);
+    };
+    addRow('You', game.playing ? `Level ${vars.Level}` : 'In menu');
+    if (online.enabled) {
+      for (const r of online.remotes.values()) {
+        if (r.open) addRow(r.name, r.hasState && r.playing ? `Level ${r.level}` : 'In menu');
+      }
+    }
+  }
+
+  function addChat(name, emojiIndex) {
+    const li = document.createElement('li');
+    const who = document.createElement('span'); who.textContent = name + ':';
+    const what = document.createElement('span'); what.className = 'emoji'; what.textContent = EMOJIS[emojiIndex].char;
+    li.append(who, what);
+    logEl.appendChild(li);
+    while (logEl.children.length > MAX_LOG) logEl.firstChild.remove();
+  }
+
+  function flashEmojiCooldown() {
+    for (const b of barEl.children) b.disabled = true;
+    setTimeout(() => { for (const b of barEl.children) b.disabled = !online.enabled; }, ONLINE.emojiCooldownMs);
+  }
+
+  return { showColorMonitor, renderOnline, addChat, flashEmojiCooldown };
+})();
+
+// Mouse / touch on the game screen.
+screenCanvas.addEventListener('pointermove', event => { updateMouse(event); mouse.inside = true; });
+screenCanvas.addEventListener('pointerleave', () => { mouse.inside = false; mouse.isDown = false; });
+screenCanvas.addEventListener('pointerdown', event => {
+  updateMouse(event);
+  mouse.inside = true;
+  mouse.isDown = true;
+  mouse.tappedDown = true;
+});
+window.addEventListener('pointerup', () => { mouse.isDown = false; });
+window.addEventListener('pointercancel', () => { mouse.isDown = false; });
+
+// Leave the lobby politely so the next player can claim it quickly.
+window.addEventListener('pagehide', stopOnline);
+
+
+/* ==========================================================================
+   11. START-UP AND MAIN LOOP
+   ========================================================================== */
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('Could not load ' + file));
+    img.src = ASSET_DIR + file;
+  });
+}
+
+async function loadAssets() {
+  const costumes = [];
+  for (const def of Object.values(SPRITE_DEFS)) costumes.push(...def.costumes);
+  await Promise.all(costumes.map(async costume => { costume.img = await loadImage(costume.file); }));
+  loadSounds();
+}
+
+function showStageMessage(text, isError) {
+  const el = document.getElementById('stageMessage');
+  el.textContent = text;
+  el.classList.toggle('error', Boolean(isError));
+  el.hidden = !text;
+}
+
+function startMainLoop() {
+  let last = performance.now();
+  let accumulator = 0;
+
+  function frame(now) {
+    accumulator += Math.min((now - last) / 1000, 0.25);    // never try to catch up more than 0.25 s
+    last = now;
+    let ticked = false;
+    while (accumulator >= TICK) {
+      accumulator -= TICK;
+      runtime.clock += TICK;
+      stepThreads();
+      keys.endTick();
+      mouse.endTick();
+      onlineTick();
+      ticked = true;
+    }
+    if (ticked) render();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+}
+
+(async function main() {
+  try {
+    await loadAssets();
+    alphaMask(playButton.costume);          // fails early if the page is opened from file://
+  } catch (error) {
+    console.error(error);
+    showStageMessage('The game could not load its files. Make sure the "assets" folder is next to this page and open it through a web server (for example GitHub Pages), not directly from disk.', true);
+    return;
+  }
+
+  showStageMessage('', false);
+  startFlagScripts();                       // the project starts automatically — no green flag
+  startMainLoop();
+  ui.renderOnline();
+  startOnline();                            // online mode is on by default
+})();
+</script>
+</body>
+</html>
